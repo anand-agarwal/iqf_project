@@ -1,0 +1,1186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Medallion Fund Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d0f14;
+    --bg2: #13161d;
+    --bg3: #1a1e29;
+    --border: rgba(255,255,255,0.07);
+    --border2: rgba(255,255,255,0.13);
+    --text: #e8eaf0;
+    --muted: #7a7f94;
+    --accent: #5b8cf5;
+    --accent2: #2ecc8f;
+    --accent3: #f5a623;
+    --accent4: #e05c5c;
+    --accent5: #a78bfa;
+    --accent6: #38bdf8;
+    --danger: #e05c5c;
+    --success: #2ecc8f;
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Sora', sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+  }
+  code, .mono { font-family: 'DM Mono', monospace; }
+
+  /* ── Layout ── */
+  .top-bar {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(13,15,20,0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 28px; height: 56px;
+  }
+  .logo { font-size: 15px; font-weight: 700; letter-spacing: -0.3px; }
+  .logo span { color: var(--accent); }
+  .top-actions { display: flex; align-items: center; gap: 12px; }
+  .badge {
+    font-size: 11px; padding: 3px 10px; border-radius: 20px;
+    background: rgba(91,140,245,0.15); color: var(--accent);
+    border: 1px solid rgba(91,140,245,0.25); font-family: 'DM Mono', monospace;
+  }
+
+  .container { display: grid; grid-template-columns: 280px 1fr; min-height: calc(100vh - 56px); }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+    display: flex; flex-direction: column; gap: 20px;
+  }
+  .sidebar-section h4 {
+    font-size: 10px; font-weight: 600; letter-spacing: 1.2px;
+    color: var(--muted); text-transform: uppercase; margin-bottom: 10px;
+  }
+  .category-group { margin-bottom: 12px; }
+  .category-label {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 12px; font-weight: 600; color: var(--muted);
+    padding: 6px 8px; cursor: pointer; border-radius: 6px;
+    transition: background .15s;
+  }
+  .category-label:hover { background: var(--bg3); color: var(--text); }
+  .category-label .chevron { font-size: 10px; transition: transform .2s; }
+  .category-label.open .chevron { transform: rotate(90deg); }
+  .fund-list { display: none; padding-left: 8px; }
+  .fund-list.open { display: block; }
+  .fund-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px; border-radius: 6px; cursor: pointer;
+    transition: background .12s; font-size: 12px; color: var(--muted);
+  }
+  .fund-item:hover { background: var(--bg3); color: var(--text); }
+  .fund-item.selected { background: rgba(91,140,245,0.12); color: var(--accent); }
+  .fund-item input[type=checkbox] { accent-color: var(--accent); width: 13px; height: 13px; }
+  .fund-color-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  .index-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border-radius: 6px; cursor: pointer;
+    transition: background .12s; font-size: 12px; color: var(--muted);
+  }
+  .index-item:hover { background: var(--bg3); color: var(--text); }
+  .index-item.selected { background: rgba(46,204,143,0.1); color: var(--accent2); }
+  .index-item input[type=checkbox] { accent-color: var(--accent2); width: 13px; height: 13px; }
+
+  .sidebar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn-sm {
+    font-size: 11px; font-family: 'Sora', sans-serif;
+    padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border2);
+    background: transparent; color: var(--muted); cursor: pointer;
+    transition: all .15s;
+  }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Main ── */
+  .main { padding: 24px 28px; overflow-y: auto; display: flex; flex-direction: column; gap: 24px; }
+
+  /* ── View Tabs ── */
+  .view-tabs { display: flex; gap: 4px; background: var(--bg2); border-radius: var(--radius-sm); padding: 4px; width: fit-content; }
+  .tab-btn {
+    font-size: 12px; font-family: 'Sora', sans-serif; font-weight: 600;
+    padding: 7px 18px; border-radius: 6px; border: none;
+    background: transparent; color: var(--muted); cursor: pointer; transition: all .15s;
+  }
+  .tab-btn.active { background: var(--bg3); color: var(--text); border: 1px solid var(--border2); }
+
+  /* ── Stat Cards ── */
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: 12px; }
+  .stat-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px 18px;
+  }
+  .stat-card .label { font-size: 11px; color: var(--muted); margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: .8px; }
+  .stat-card .value { font-size: 22px; font-weight: 700; font-family: 'DM Mono', monospace; }
+  .stat-card .sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .pos { color: var(--success); }
+  .neg { color: var(--danger); }
+
+  /* ── Chart Cards ── */
+  .chart-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px 22px;
+  }
+  .chart-card h3 {
+    font-size: 13px; font-weight: 600; color: var(--text);
+    margin-bottom: 4px; letter-spacing: -.2px;
+  }
+  .chart-card .chart-sub { font-size: 11px; color: var(--muted); margin-bottom: 16px; }
+  .chart-wrapper { position: relative; width: 100%; }
+
+  /* Controls */
+  .chart-controls { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  .ctrl-btn {
+    font-size: 11px; font-family: 'Sora', sans-serif; font-weight: 600;
+    padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border2);
+    background: transparent; color: var(--muted); cursor: pointer; transition: all .15s;
+  }
+  .ctrl-btn.active { background: rgba(91,140,245,0.15); border-color: rgba(91,140,245,0.4); color: var(--accent); }
+
+  .custom-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+  .legend-line { width: 18px; height: 2px; flex-shrink: 0; }
+
+  /* ── Scatter ── */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+  /* ── Table ── */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  thead th {
+    text-align: left; padding: 8px 12px; font-size: 10px; font-weight: 600;
+    color: var(--muted); text-transform: uppercase; letter-spacing: .8px;
+    border-bottom: 1px solid var(--border);
+  }
+  tbody tr { border-bottom: 1px solid var(--border); transition: background .1s; }
+  tbody tr:hover { background: var(--bg3); }
+  tbody td { padding: 10px 12px; color: var(--text); font-family: 'DM Mono', monospace; font-size: 12px; }
+  td.fund-name { font-family: 'Sora', sans-serif; font-weight: 600; font-size: 12px; }
+
+  /* ── Empty / Loading ── */
+  .empty-state {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 340px; gap: 12px; color: var(--muted); text-align: center;
+  }
+  .empty-icon { font-size: 36px; opacity: .3; }
+  .empty-state h3 { font-size: 16px; font-weight: 600; color: var(--text); }
+  .empty-state p { font-size: 13px; max-width: 320px; line-height: 1.6; }
+
+  /* ── Range picker ── */
+  .range-picker { display: flex; align-items: center; gap: 8px; }
+  .range-picker label { font-size: 11px; color: var(--muted); }
+  .range-picker input[type=date] {
+    background: var(--bg3); border: 1px solid var(--border2); color: var(--text);
+    border-radius: 6px; padding: 4px 8px; font-size: 12px; font-family: 'DM Mono', monospace;
+  }
+  .range-picker input[type=date]::-webkit-calendar-picker-indicator { filter: invert(0.5); }
+
+  /* ── Toast ── */
+  #toast {
+    position: fixed; bottom: 24px; right: 24px; z-index: 999;
+    background: var(--bg3); border: 1px solid var(--border2);
+    border-radius: var(--radius-sm); padding: 12px 18px;
+    font-size: 13px; color: var(--text);
+    transform: translateY(80px); opacity: 0; transition: all .25s;
+    max-width: 320px;
+  }
+  #toast.show { transform: translateY(0); opacity: 1; }
+  #toast.error { border-color: var(--danger); color: var(--danger); }
+  #toast.ok { border-color: var(--success); color: var(--success); }
+
+  /* ── Section header ── */
+  .section-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+  @media (max-width: 900px) {
+    .container { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); max-height: 300px; }
+    .two-col { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <div class="logo">Medallion <span>Fund</span></div>
+  <div class="top-actions">
+    <span class="badge" id="data-status">Waiting for workbook</span>
+  </div>
+</div>
+
+<div class="container">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <h4>Mutual Funds</h4>
+      <div id="fund-list">
+        <div class="empty-state" style="min-height:80px;font-size:12px;">
+          <p style="font-size:12px;">Waiting for workbook data</p>
+        </div>
+      </div>
+    </div>
+    <div class="sidebar-section">
+      <h4>Benchmark Indices</h4>
+      <div id="index-list">
+        <div style="color:var(--muted);font-size:12px;padding:8px;">—</div>
+      </div>
+    </div>
+    <div class="sidebar-section">
+      <h4>Actions</h4>
+      <div class="sidebar-actions">
+        <button class="btn-sm" onclick="selectAll()">Select All</button>
+        <button class="btn-sm" onclick="clearAll()">Clear</button>
+        <button class="btn-sm" onclick="selectCategory(activeCategory)">Cat. Only</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main" id="main-panel">
+    <div class="empty-state" id="landing-empty">
+      <div class="empty-icon">📊</div>
+      <h3>Loading workbook</h3>
+      <p>The dashboard reads data directly from <code>./NAV_Data.xlsx</code> and refreshes automatically when the file changes.</p>
+    </div>
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ─── State ───────────────────────────────────────────────────────────────────
+let DB = { funds: {}, indices: {}, riskFree: {}, meta: {} };
+let selectedFunds = new Set();
+let selectedIndices = new Set();
+let currentView = 'nav';
+let activeCategory = null;
+const WORKBOOK_PATH = './NAV_Data.xlsx';
+const AUTO_REFRESH_MS = 30000;
+const COLORS = [
+  '#5b8cf5','#2ecc8f','#f5a623','#e05c5c','#a78bfa','#38bdf8',
+  '#f97316','#ec4899','#84cc16','#14b8a6','#f43f5e','#8b5cf6'
+];
+let fundColorMap = {};
+let workbookSignature = null;
+let lastLoadError = null;
+let dateAdapterReady = false;
+let refreshTimerId = null;
+
+// ─── Workbook Load ───────────────────────────────────────────────────────────
+async function loadWorkbook(showToast = false) {
+  try {
+    if (!dateAdapterReady) return;
+
+    const res = await fetch(`${WORKBOOK_PATH}?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const buf = await res.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let hash = 0;
+    for (let i = 0; i < bytes.length; i++) hash = (hash * 31 + bytes[i]) >>> 0;
+    const sig = `${bytes.length}:${hash}`;
+    if (sig === workbookSignature) return;
+
+    const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+    parseWorkbook(wb);
+    workbookSignature = sig;
+    lastLoadError = null;
+    if (showToast) toast('Workbook loaded', 'ok');
+  } catch (err) {
+    document.getElementById('data-status').textContent = 'Workbook unavailable';
+    renderWorkbookError(err);
+    if (lastLoadError !== err.message) {
+      toast('Error loading workbook: ' + err.message, 'error');
+      lastLoadError = err.message;
+    }
+  }
+}
+
+function renderWorkbookError(err) {
+  const fl = document.getElementById('fund-list');
+  fl.innerHTML = `<div class="empty-state" style="min-height:80px;font-size:12px;">
+    <p style="font-size:12px;">Could not read <code>${WORKBOOK_PATH}</code></p>
+  </div>`;
+
+  const main = document.getElementById('main-panel');
+  main.innerHTML = `<div class="empty-state" id="landing-empty">
+    <div class="empty-icon">⚠️</div>
+    <h3>Workbook not available</h3>
+    <p>Make sure <code>${WORKBOOK_PATH}</code> is served alongside this page. Browser error: ${err.message}</p>
+  </div>`;
+}
+
+function normalizeRow(row) {
+  const normalized = {};
+  Object.entries(row).forEach(([key, value]) => {
+    const cleanKey = String(key || '').trim();
+    normalized[cleanKey] = typeof value === 'string' ? value.trim() : value;
+  });
+  return normalized;
+}
+
+function getSheetByHeaders(wb, requiredHeaders) {
+  for (const sheetName of wb.SheetNames) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { raw: false });
+    if (!rows.length) continue;
+    const headers = Object.keys(normalizeRow(rows[0]));
+    const hasAll = requiredHeaders.every(h => headers.includes(h));
+    if (hasAll) return { sheetName, rows };
+  }
+  return null;
+}
+
+function parseWorkbook(wb) {
+  const prevFunds = new Set(selectedFunds);
+  const prevIndices = new Set(selectedIndices);
+  DB = { funds: {}, indices: {}, riskFree: {}, meta: {} };
+
+  // Sheet with NAV data — columns: Date, FundName, Category, NAV
+  const navSheet = getSheetByHeaders(wb, ['Date', 'FundName', 'Category', 'NAV']);
+  if (navSheet) {
+    navSheet.rows.forEach(rawRow => {
+      const r = normalizeRow(rawRow);
+      const name = r['FundName'], cat = r['Category'], nav = parseFloat(r['NAV']), date = r['Date'];
+      if (!name || isNaN(nav) || !date) return;
+      if (!DB.funds[name]) DB.funds[name] = { category: cat, nav: [] };
+      DB.funds[name].nav.push({ date: new Date(date), value: nav });
+    });
+    Object.values(DB.funds).forEach(f => f.nav.sort((a,b) => a.date - b.date));
+  }
+
+  // Sheet: Index_Data — columns: Date, IndexName, Value
+  if (wb.SheetNames.includes('Index_Data')) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets['Index_Data'], { raw: false });
+    rows.forEach(rawRow => {
+      const r = normalizeRow(rawRow);
+      const name = r['IndexName'], val = parseFloat(r['Value']), date = r['Date'];
+      if (!name || isNaN(val) || !date) return;
+      if (!DB.indices[name]) DB.indices[name] = [];
+      DB.indices[name].push({ date: new Date(date), value: val });
+    });
+    Object.values(DB.indices).forEach(arr => arr.sort((a,b) => a.date - b.date));
+  }
+
+  // Sheet: RiskFree — columns: Date, Rate
+  if (wb.SheetNames.includes('RiskFree')) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets['RiskFree'], { raw: false });
+    rows.forEach(rawRow => {
+      const r = normalizeRow(rawRow);
+      const rate = parseFloat(r['Rate']), date = r['Date'];
+      if (isNaN(rate) || !date) return;
+      DB.riskFree[r['Date']] = rate;
+    });
+  }
+
+  // Sheet: RiskMetrics — columns: FundName, Period, Alpha, Beta, Sharpe, Benchmark, R2
+  if (wb.SheetNames.includes('RiskMetrics')) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets['RiskMetrics'], { raw: false });
+    rows.forEach(rawRow => {
+      const r = normalizeRow(rawRow);
+      const name = r['FundName'];
+      if (!name) return;
+      if (!DB.meta[name]) DB.meta[name] = {};
+      const period = r['Period'] || '3Y';
+      DB.meta[name][period] = {
+        alpha: parseFloat(r['Alpha']),
+        beta: parseFloat(r['Beta']),
+        sharpe: parseFloat(r['Sharpe']),
+        r2: parseFloat(r['R2']),
+        benchmark: r['Benchmark']
+      };
+    });
+  }
+
+  selectedFunds = new Set([...prevFunds].filter(name => DB.funds[name]));
+  selectedIndices = new Set([...prevIndices].filter(name => DB.indices[name]));
+  assignColors();
+  renderSidebar();
+  renderDashboard();
+
+  const n = Object.keys(DB.funds).length;
+  document.getElementById('data-status').textContent = `${n} funds loaded`;
+}
+
+function assignColors() {
+  let i = 0;
+  Object.keys(DB.funds).forEach(name => { fundColorMap[name] = COLORS[i++ % COLORS.length]; });
+  Object.keys(DB.indices).forEach(name => { fundColorMap[name] = COLORS[i++ % COLORS.length]; });
+}
+
+// ─── Sidebar ─────────────────────────────────────────────────────────────────
+function renderSidebar() {
+  // Funds grouped by category
+  const cats = {};
+  Object.entries(DB.funds).forEach(([name, f]) => {
+    const c = f.category || 'Other';
+    if (!cats[c]) cats[c] = [];
+    cats[c].push(name);
+  });
+
+  const fl = document.getElementById('fund-list');
+  fl.innerHTML = '';
+  Object.entries(cats).forEach(([cat, funds]) => {
+    const grp = document.createElement('div');
+    grp.className = 'category-group';
+    const lbl = document.createElement('div');
+    lbl.className = 'category-label open';
+    lbl.innerHTML = `<span>${cat}</span><span class="chevron">›</span>`;
+    lbl.onclick = () => {
+      lbl.classList.toggle('open');
+      list.classList.toggle('open');
+      activeCategory = cat;
+    };
+    const list = document.createElement('div');
+    list.className = 'fund-list open';
+    funds.forEach(name => {
+      const item = document.createElement('div');
+      item.className = 'fund-item' + (selectedFunds.has(name) ? ' selected' : '');
+      item.dataset.name = name;
+      item.innerHTML = `<input type="checkbox" ${selectedFunds.has(name)?'checked':''} />
+        <span class="fund-color-dot" style="background:${fundColorMap[name]}"></span>
+        <span>${name}</span>`;
+      item.onclick = () => toggleFund(name, item);
+      list.appendChild(item);
+    });
+    grp.append(lbl, list);
+    fl.appendChild(grp);
+    activeCategory = Object.keys(cats)[0];
+  });
+
+  // Indices
+  const il = document.getElementById('index-list');
+  il.innerHTML = '';
+  Object.keys(DB.indices).forEach(name => {
+    const item = document.createElement('div');
+    item.className = 'index-item' + (selectedIndices.has(name) ? ' selected' : '');
+    item.dataset.name = name;
+    item.innerHTML = `<input type="checkbox" ${selectedIndices.has(name)?'checked':''} />
+      <span class="fund-color-dot" style="background:${fundColorMap[name]}"></span>
+      <span>${name}</span>`;
+    item.onclick = () => toggleIndex(name, item);
+    il.appendChild(item);
+  });
+  if (!Object.keys(DB.indices).length) {
+    il.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px;">No index data found</div>';
+  }
+}
+
+function toggleFund(name, el) {
+  if (selectedFunds.has(name)) { selectedFunds.delete(name); el.classList.remove('selected'); }
+  else { selectedFunds.add(name); el.classList.add('selected'); }
+  el.querySelector('input').checked = selectedFunds.has(name);
+  renderDashboard();
+}
+function toggleIndex(name, el) {
+  if (selectedIndices.has(name)) { selectedIndices.delete(name); el.classList.remove('selected'); }
+  else { selectedIndices.add(name); el.classList.add('selected'); }
+  el.querySelector('input').checked = selectedIndices.has(name);
+  renderDashboard();
+}
+function selectAll() {
+  Object.keys(DB.funds).forEach(n => selectedFunds.add(n));
+  Object.keys(DB.indices).forEach(n => selectedIndices.add(n));
+  renderSidebar(); renderDashboard();
+}
+function clearAll() {
+  selectedFunds.clear(); selectedIndices.clear();
+  renderSidebar(); renderDashboard();
+}
+function selectCategory(cat) {
+  if (!cat) return;
+  selectedFunds.clear();
+  Object.entries(DB.funds).forEach(([n, f]) => { if (f.category === cat) selectedFunds.add(n); });
+  renderSidebar(); renderDashboard();
+}
+
+// ─── Dashboard ───────────────────────────────────────────────────────────────
+let chartInstances = {};
+function destroyCharts() {
+  Object.values(chartInstances).forEach(c => c.destroy());
+  chartInstances = {};
+}
+
+function renderDashboard() {
+  destroyCharts();
+  const main = document.getElementById('main-panel');
+  const totalSelected = selectedFunds.size + selectedIndices.size;
+
+  if (!Object.keys(DB.funds).length) {
+    main.innerHTML = `<div class="empty-state" id="landing-empty">
+      <div class="empty-icon">📊</div>
+      <h3>No workbook data found</h3>
+      <p>Add rows with <code>Date</code>, <code>FundName</code>, <code>Category</code>, and <code>NAV</code> to <code>${WORKBOOK_PATH}</code>.</p>
+    </div>`;
+    return;
+  }
+
+  if (totalSelected === 0) {
+    main.innerHTML = `<div class="empty-state">
+      <div class="empty-icon">👈</div>
+      <h3>Select funds to analyse</h3>
+      <p>Pick one or more mutual funds and/or indices from the sidebar to start plotting.</p>
+    </div>`;
+    return;
+  }
+
+  main.innerHTML = `
+    <div class="section-header">
+      <div class="view-tabs">
+        <button class="tab-btn ${currentView==='nav'?'active':''}" onclick="switchView('nav')">NAV Performance</button>
+        <button class="tab-btn ${currentView==='risk'?'active':''}" onclick="switchView('risk')">Alpha / Beta</button>
+        <button class="tab-btn ${currentView==='returns'?'active':''}" onclick="switchView('returns')">Returns</button>
+        <button class="tab-btn ${currentView==='table'?'active':''}" onclick="switchView('table')">Data Table</button>
+      </div>
+      <div class="range-picker">
+        <label>From</label>
+        <input type="date" id="range-from" onchange="renderDashboard()" />
+        <label>To</label>
+        <input type="date" id="range-to" onchange="renderDashboard()" />
+      </div>
+    </div>
+    <div id="view-content"></div>
+  `;
+
+  if (currentView === 'nav') renderNAVView();
+  else if (currentView === 'risk') renderRiskView();
+  else if (currentView === 'returns') renderReturnsView();
+  else if (currentView === 'table') renderTableView();
+}
+
+function switchView(v) { currentView = v; renderDashboard(); }
+
+function getDateRange() {
+  const from = document.getElementById('range-from')?.value;
+  const to = document.getElementById('range-to')?.value;
+  return {
+    from: from ? new Date(from) : null,
+    to: to ? new Date(to) : null
+  };
+}
+
+function filterByDateRange(arr) {
+  const { from, to } = getDateRange();
+  return arr.filter(p => (!from || p.date >= from) && (!to || p.date <= to));
+}
+
+// ── NAV View ─────────────────────────────────────────────────────────────────
+function renderNAVView() {
+  const vc = document.getElementById('view-content');
+
+  // Summary stats
+  const stats = buildSummaryStats();
+  vc.innerHTML = `
+    <div class="stat-grid" id="stat-grid"></div>
+    <div class="chart-card" style="margin-top:0;">
+      <h3>NAV Performance</h3>
+      <p class="chart-sub">Indexed to 100 at start of selected period — allows comparison across funds of different NAV magnitudes</p>
+      <div class="chart-controls">
+        <button class="ctrl-btn active" onclick="setNavMode('indexed',this)">Indexed (100)</button>
+        <button class="ctrl-btn" onclick="setNavMode('absolute',this)">Absolute NAV</button>
+        <button class="ctrl-btn" onclick="setNavMode('returns',this)">Cumulative Return %</button>
+      </div>
+      <div class="chart-wrapper" style="height:360px;"><canvas id="navChart" role="img" aria-label="NAV performance chart for selected funds">NAV performance over time for selected funds and indices.</canvas></div>
+      <div class="custom-legend" id="nav-legend"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Rolling 12-Month Return</h3>
+      <p class="chart-sub">12-month trailing return at each point in time — shows consistency of performance</p>
+      <div class="chart-wrapper" style="height:260px;"><canvas id="rollingChart" role="img" aria-label="Rolling 12-month return chart">Rolling 12-month return for selected funds.</canvas></div>
+      <div class="custom-legend" id="rolling-legend"></div>
+    </div>
+  `;
+
+  const sg = document.getElementById('stat-grid');
+  stats.forEach(s => {
+    const c = document.createElement('div');
+    c.className = 'stat-card';
+    c.innerHTML = `<div class="label">${s.label}</div>
+      <div class="value ${s.cls}">${s.value}</div>
+      <div class="sub">${s.sub}</div>`;
+    sg.appendChild(c);
+  });
+
+  buildNavChart('indexed');
+  buildRollingChart();
+}
+
+let navMode = 'indexed';
+function setNavMode(mode, btn) {
+  navMode = mode;
+  document.querySelectorAll('.ctrl-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (chartInstances['navChart']) { chartInstances['navChart'].destroy(); delete chartInstances['navChart']; }
+  buildNavChart(mode);
+}
+
+function buildNavChart(mode) {
+  const allSeries = getSelectedSeries();
+  if (!allSeries.length) return;
+
+  const datasets = allSeries.map(({ name, points, color }) => {
+    let data;
+    if (mode === 'indexed') {
+      const base = points[0]?.value || 1;
+      data = points.map(p => ({ x: p.date, y: +(p.value / base * 100).toFixed(2) }));
+    } else if (mode === 'absolute') {
+      data = points.map(p => ({ x: p.date, y: +p.value.toFixed(2) }));
+    } else {
+      const base = points[0]?.value || 1;
+      data = points.map(p => ({ x: p.date, y: +(((p.value - base) / base) * 100).toFixed(2) }));
+    }
+    return {
+      label: name,
+      data,
+      borderColor: color,
+      backgroundColor: color + '22',
+      borderWidth: 2,
+      pointRadius: 0,
+      tension: 0.3,
+      fill: false
+    };
+  });
+
+  const ctx = document.getElementById('navChart');
+  chartInstances['navChart'] = new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false }, tooltip: {
+        callbacks: {
+          label: ctx => {
+            const v = ctx.parsed.y;
+            if (mode === 'indexed') return `${ctx.dataset.label}: ${v.toFixed(1)}`;
+            if (mode === 'returns') return `${ctx.dataset.label}: ${v.toFixed(2)}%`;
+            return `${ctx.dataset.label}: ₹${v.toFixed(2)}`;
+          }
+        }
+      }},
+      scales: {
+        x: { type: 'time', time: { unit: 'month', displayFormats: { month: 'MMM yy' } },
+          ticks: { color: '#7a7f94', maxTicksLimit: 12 }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#7a7f94' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+      }
+    }
+  });
+
+  buildLegend('nav-legend', allSeries);
+}
+
+function buildRollingChart() {
+  const allSeries = getSelectedSeries();
+  const datasets = allSeries.map(({ name, points, color }) => {
+    const data = [];
+    for (let i = 12; i < points.length; i++) {
+      const base = points[i-12].value, cur = points[i].value;
+      data.push({ x: points[i].date, y: +(((cur - base)/base)*100).toFixed(2) });
+    }
+    return { label: name, data, borderColor: color, borderWidth: 2, pointRadius: 0, tension: 0.3, fill: false };
+  });
+
+  const ctx = document.getElementById('rollingChart');
+  chartInstances['rollingChart'] = new Chart(ctx, {
+    type: 'line', data: { datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { type: 'time', time: { unit: 'month', displayFormats: { month: 'MMM yy' } },
+          ticks: { color: '#7a7f94', maxTicksLimit: 12 }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#7a7f94', callback: v => v+'%' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+      }
+    }
+  });
+  buildLegend('rolling-legend', allSeries);
+}
+
+// ── Alpha / Beta View ─────────────────────────────────────────────────────────
+function renderRiskView() {
+  const vc = document.getElementById('view-content');
+  vc.innerHTML = `
+    <div class="chart-controls" style="margin-bottom:4px;">
+      <span style="font-size:11px;color:var(--muted);margin-right:4px;">Period:</span>
+      ${['1Y','3Y','5Y'].map(p => `<button class="ctrl-btn ${p==='3Y'?'active':''}" onclick="switchRiskPeriod('${p}',this)">${p}</button>`).join('')}
+    </div>
+    <div class="two-col">
+      <div class="chart-card">
+        <h3>Alpha (Jensen's Alpha)</h3>
+        <p class="chart-sub">Excess return over benchmark after adjusting for systematic risk</p>
+        <div class="chart-wrapper" style="height:300px;"><canvas id="alphaChart" role="img" aria-label="Alpha comparison bar chart">Jensen's Alpha for selected funds.</canvas></div>
+      </div>
+      <div class="chart-card">
+        <h3>Beta</h3>
+        <p class="chart-sub">Sensitivity to benchmark movement. 1 = same as market</p>
+        <div class="chart-wrapper" style="height:300px;"><canvas id="betaChart" role="img" aria-label="Beta comparison bar chart">Beta for selected funds.</canvas></div>
+      </div>
+    </div>
+    <div class="two-col">
+      <div class="chart-card">
+        <h3>Sharpe Ratio</h3>
+        <p class="chart-sub">Risk-adjusted return — excess return per unit of volatility (vs RBI 91-day T-Bill)</p>
+        <div class="chart-wrapper" style="height:280px;"><canvas id="sharpeChart" role="img" aria-label="Sharpe ratio bar chart">Sharpe ratios for selected funds.</canvas></div>
+      </div>
+      <div class="chart-card">
+        <h3>Alpha vs Beta (Scatter)</h3>
+        <p class="chart-sub">Ideal funds: high alpha, beta ≤ 1</p>
+        <div class="chart-wrapper" style="height:280px;"><canvas id="abScatter" role="img" aria-label="Alpha vs Beta scatter chart">Alpha vs Beta scatter for selected funds.</canvas></div>
+        <div class="custom-legend" id="ab-legend"></div>
+      </div>
+    </div>
+  `;
+  buildRiskCharts('3Y');
+}
+
+let riskPeriod = '3Y';
+function switchRiskPeriod(p, btn) {
+  riskPeriod = p;
+  document.querySelectorAll('.ctrl-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  ['alphaChart','betaChart','sharpeChart','abScatter'].forEach(id => {
+    if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; }
+  });
+  buildRiskCharts(p);
+}
+
+function buildRiskCharts(period) {
+  const funds = [...selectedFunds].filter(n => DB.meta[n]?.[period]);
+  if (!funds.length) {
+    document.querySelectorAll('#alphaChart,#betaChart,#sharpeChart').forEach(c => {
+      c.parentElement.innerHTML = `<p style="color:var(--muted);font-size:12px;padding:40px;text-align:center;">No risk metrics for period ${period}. Check RiskMetrics sheet.</p>`;
+    });
+    return;
+  }
+
+  const labels = funds.map(n => n.length > 22 ? n.slice(0,20)+'…' : n);
+  const colors = funds.map(n => fundColorMap[n]);
+  const alphas = funds.map(n => +(DB.meta[n][period].alpha || 0).toFixed(3));
+  const betas  = funds.map(n => +(DB.meta[n][period].beta  || 0).toFixed(3));
+  const sharpes= funds.map(n => +(DB.meta[n][period].sharpe|| 0).toFixed(3));
+
+  const barOpts = (label, color) => ({
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color: '#7a7f94', font: { size: 10 } }, grid: { display: false } },
+      y: { ticks: { color: '#7a7f94' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+    }
+  });
+
+  chartInstances['alphaChart'] = new Chart(document.getElementById('alphaChart'), {
+    type: 'bar',
+    data: { labels, datasets: [{ label: 'Alpha', data: alphas, backgroundColor: colors.map(c=>c+'bb'), borderColor: colors, borderWidth: 1, borderRadius: 4 }] },
+    options: barOpts('Alpha')
+  });
+  chartInstances['betaChart'] = new Chart(document.getElementById('betaChart'), {
+    type: 'bar',
+    data: { labels, datasets: [{ label: 'Beta', data: betas, backgroundColor: colors.map(c=>c+'bb'), borderColor: colors, borderWidth: 1, borderRadius: 4 }] },
+    options: {
+      ...barOpts('Beta'),
+      plugins: { ...barOpts('Beta').plugins,
+        annotation: { annotations: { line1: { type: 'line', yMin: 1, yMax: 1, borderColor: '#fff', borderWidth: 1, borderDash: [4,4] } } }
+      }
+    }
+  });
+  chartInstances['sharpeChart'] = new Chart(document.getElementById('sharpeChart'), {
+    type: 'bar',
+    data: { labels, datasets: [{ label: 'Sharpe', data: sharpes, backgroundColor: colors.map(c=>c+'bb'), borderColor: colors, borderWidth: 1, borderRadius: 4 }] },
+    options: barOpts('Sharpe')
+  });
+
+  // Scatter
+  const scatterData = funds.map((n,i) => ({
+    x: betas[i], y: alphas[i],
+    label: n, color: colors[i]
+  }));
+  chartInstances['abScatter'] = new Chart(document.getElementById('abScatter'), {
+    type: 'scatter',
+    data: {
+      datasets: scatterData.map(d => ({
+        label: d.label,
+        data: [{ x: d.x, y: d.y }],
+        backgroundColor: d.color + 'cc',
+        borderColor: d.color,
+        borderWidth: 1.5,
+        pointRadius: 7,
+        pointHoverRadius: 9
+      }))
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: {
+        callbacks: { label: ctx => `${ctx.dataset.label}: β=${ctx.parsed.x.toFixed(3)}, α=${ctx.parsed.y.toFixed(3)}` }
+      }},
+      scales: {
+        x: { title: { display: true, text: 'Beta', color: '#7a7f94', font: { size: 11 } }, ticks: { color: '#7a7f94' }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { title: { display: true, text: 'Alpha', color: '#7a7f94', font: { size: 11 } }, ticks: { color: '#7a7f94' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+      }
+    }
+  });
+  buildLegend('ab-legend', funds.map((n,i) => ({ name: n, color: colors[i] })));
+}
+
+// ── Returns View ──────────────────────────────────────────────────────────────
+function renderReturnsView() {
+  const vc = document.getElementById('view-content');
+  vc.innerHTML = `
+    <div class="chart-card">
+      <h3>Annualised Returns Comparison</h3>
+      <p class="chart-sub">CAGR over different horizons — shows short vs long-term performance consistency</p>
+      <div class="chart-wrapper" style="height:320px;"><canvas id="cagrChart" role="img" aria-label="CAGR comparison grouped bar chart">CAGR for selected funds across 1Y, 3Y, 5Y periods.</canvas></div>
+      <div class="custom-legend" id="cagr-legend"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Monthly Return Rate</h3>
+      <p class="chart-sub">Calculated in-script from month-end NAV values using ((NAVx - NAVx-1) / NAVx) * 100 for each selected mutual fund</p>
+      <div class="chart-wrapper" style="height:280px;"><canvas id="monthlyReturnChart" role="img" aria-label="Monthly return rate chart">Monthly return rates for selected mutual funds.</canvas></div>
+      <div class="custom-legend" id="monthly-return-legend"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Monthly Return Distribution</h3>
+      <p class="chart-sub">Histogram of monthly returns — shows return distribution shape and downside risk</p>
+      <div class="chart-controls">
+        ${[...selectedFunds].map(n => `<button class="ctrl-btn histogram-btn" onclick="showHistogram('${n.replace(/'/g,"\\'")}',this)">${n.length>20?n.slice(0,18)+'…':n}</button>`).join('')}
+      </div>
+      <div class="chart-wrapper" style="height:240px;"><canvas id="histChart" role="img" aria-label="Monthly return histogram">Monthly return histogram for selected fund.</canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>Drawdown Analysis</h3>
+      <p class="chart-sub">Maximum drawdown from running peak — captures worst-case downside</p>
+      <div class="chart-wrapper" style="height:240px;"><canvas id="drawdownChart" role="img" aria-label="Drawdown chart">Drawdown chart for selected funds.</canvas></div>
+      <div class="custom-legend" id="dd-legend"></div>
+    </div>
+  `;
+
+  buildCAGRChart();
+  buildMonthlyReturnChart();
+  buildDrawdownChart();
+
+  // Auto-select first fund for histogram
+  if (selectedFunds.size > 0) {
+    const first = [...selectedFunds][0];
+    const firstBtn = document.querySelector('.histogram-btn');
+    if (firstBtn) { firstBtn.classList.add('active'); showHistogram(first, firstBtn); }
+  }
+}
+
+function buildCAGRChart() {
+  const periods = ['1Y', '3Y', '5Y'];
+  const allSeries = getSelectedSeries();
+  const labels = periods;
+  const datasets = allSeries.map(({ name, points, color }) => {
+    const data = periods.map(p => {
+      const months = p === '1Y' ? 12 : p === '3Y' ? 36 : 60;
+      if (points.length < months+1) return null;
+      const base = points[points.length - months - 1].value;
+      const end = points[points.length - 1].value;
+      const years = months / 12;
+      return +((Math.pow(end/base, 1/years) - 1) * 100).toFixed(2);
+    });
+    return { label: name, data, backgroundColor: color+'bb', borderColor: color, borderWidth: 1, borderRadius: 4 };
+  });
+
+  chartInstances['cagrChart'] = new Chart(document.getElementById('cagrChart'), {
+    type: 'bar', data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#7a7f94' }, grid: { display: false } },
+        y: { ticks: { color: '#7a7f94', callback: v => v+'%' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+      }
+    }
+  });
+  buildLegend('cagr-legend', allSeries);
+}
+
+function showHistogram(name, btn) {
+  document.querySelectorAll('#view-content .histogram-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  const fund = DB.funds[name] || DB.indices[name];
+  if (!fund) return;
+  const pts = filterByDateRange(fund.nav || fund);
+  const monthlyReturns = calcMonthlyReturnSeries(pts).map(p => p.y);
+  if (!monthlyReturns.length) return;
+
+  const min = Math.floor(Math.min(...monthlyReturns)), max = Math.ceil(Math.max(...monthlyReturns));
+  const buckets = 20, step = (max - min || 1) / buckets;
+  const counts = Array(buckets).fill(0);
+  monthlyReturns.forEach(r => {
+    const idx = Math.min(Math.floor((r - min) / step), buckets - 1);
+    counts[idx]++;
+  });
+  const labels = Array.from({length: buckets}, (_,i) => (min + i*step).toFixed(1)+'%');
+
+  if (chartInstances['histChart']) { chartInstances['histChart'].destroy(); delete chartInstances['histChart']; }
+  const color = fundColorMap[name] || COLORS[0];
+  chartInstances['histChart'] = new Chart(document.getElementById('histChart'), {
+    type: 'bar', data: { labels, datasets: [{ label: name, data: counts, backgroundColor: color+'aa', borderColor: color, borderWidth: 1 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#7a7f94', maxTicksLimit: 10 }, grid: { display: false } },
+        y: { ticks: { color: '#7a7f94' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+      }
+    }
+  });
+}
+
+function buildMonthlyReturnChart() {
+  const fundSeries = [...selectedFunds].map(name => {
+    const fund = DB.funds[name];
+    if (!fund) return null;
+    const points = filterByDateRange(fund.nav);
+    const data = calcMonthlyReturnSeries(points);
+    if (!data.length) return null;
+    return {
+      name,
+      color: fundColorMap[name],
+      data
+    };
+  }).filter(Boolean);
+
+  if (!fundSeries.length) {
+    const canvas = document.getElementById('monthlyReturnChart');
+    if (canvas) {
+      canvas.parentElement.innerHTML = `<p style="color:var(--muted);font-size:12px;padding:40px;text-align:center;">Need at least two month-end NAV points per selected mutual fund to plot monthly return rates.</p>`;
+    }
+    return;
+  }
+
+  chartInstances['monthlyReturnChart'] = new Chart(document.getElementById('monthlyReturnChart'), {
+    type: 'line',
+    data: {
+      datasets: fundSeries.map(s => ({
+        label: s.name,
+        data: s.data,
+        borderColor: s.color,
+        backgroundColor: s.color + '22',
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.3,
+        fill: false
+      }))
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}%`
+          }
+        }
+      },
+      scales: {
+        x: { type: 'time', time: { unit: 'month', displayFormats: { month: 'MMM yy' } },
+          ticks: { color: '#7a7f94', maxTicksLimit: 12 }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#7a7f94', callback: v => v + '%' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+      }
+    }
+  });
+
+  buildLegend('monthly-return-legend', fundSeries.map(s => ({ name: s.name, color: s.color })));
+}
+
+function buildDrawdownChart() {
+  const allSeries = getSelectedSeries();
+  const datasets = allSeries.map(({ name, points, color }) => {
+    let peak = -Infinity, data = [];
+    points.forEach(p => {
+      if (p.value > peak) peak = p.value;
+      data.push({ x: p.date, y: +(((p.value - peak)/peak)*100).toFixed(2) });
+    });
+    return { label: name, data, borderColor: color, borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: { target: 'origin', above: color+'22' } };
+  });
+
+  chartInstances['drawdownChart'] = new Chart(document.getElementById('drawdownChart'), {
+    type: 'line', data: { datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { type: 'time', time: { unit: 'month', displayFormats: { month: 'MMM yy' } }, ticks: { color: '#7a7f94', maxTicksLimit: 12 }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#7a7f94', callback: v => v+'%' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+      }
+    }
+  });
+  buildLegend('dd-legend', allSeries);
+}
+
+// ── Table View ────────────────────────────────────────────────────────────────
+function renderTableView() {
+  const vc = document.getElementById('view-content');
+  const fundsArr = [...selectedFunds];
+
+  const rows = fundsArr.map(name => {
+    const f = DB.funds[name];
+    const pts = f ? filterByDateRange(f.nav) : [];
+    const latest = pts.at(-1)?.value || null;
+    const meta3Y = DB.meta[name]?.['3Y'];
+    const cagr1 = calcCAGR(pts, 12), cagr3 = calcCAGR(pts, 36), cagr5 = calcCAGR(pts, 60);
+    return { name, category: f?.category || '—', latest, cagr1, cagr3, cagr5,
+      alpha: meta3Y?.alpha, beta: meta3Y?.beta, sharpe: meta3Y?.sharpe };
+  });
+
+  vc.innerHTML = `
+    <div class="chart-card">
+      <h3>Fund Metrics Summary</h3>
+      <p class="chart-sub">All metrics for selected funds — Alpha/Beta/Sharpe based on 3Y period</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Fund</th><th>Category</th><th>Latest NAV</th>
+            <th>1Y CAGR</th><th>3Y CAGR</th><th>5Y CAGR</th>
+            <th>Alpha (3Y)</th><th>Beta (3Y)</th><th>Sharpe (3Y)</th>
+          </tr></thead>
+          <tbody>
+          ${rows.map(r => `<tr>
+            <td class="fund-name"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${fundColorMap[r.name]};margin-right:8px;"></span>${r.name}</td>
+            <td>${r.category}</td>
+            <td>₹${r.latest != null ? r.latest.toFixed(2) : '—'}</td>
+            <td class="${pctClass(r.cagr1)}">${r.cagr1 != null ? r.cagr1.toFixed(2)+'%' : '—'}</td>
+            <td class="${pctClass(r.cagr3)}">${r.cagr3 != null ? r.cagr3.toFixed(2)+'%' : '—'}</td>
+            <td class="${pctClass(r.cagr5)}">${r.cagr5 != null ? r.cagr5.toFixed(2)+'%' : '—'}</td>
+            <td class="${pctClass(r.alpha)}">${r.alpha != null ? r.alpha.toFixed(4) : '—'}</td>
+            <td>${r.beta != null ? r.beta.toFixed(3) : '—'}</td>
+            <td class="${pctClass(r.sharpe)}">${r.sharpe != null ? r.sharpe.toFixed(3) : '—'}</td>
+          </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function calcCAGR(pts, months) {
+  if (!pts || pts.length < months+1) return null;
+  const base = pts[pts.length - months - 1].value;
+  const end = pts[pts.length - 1].value;
+  return (Math.pow(end/base, 12/months) - 1) * 100;
+}
+
+function calcMonthlyReturnSeries(pts) {
+  if (!pts || pts.length < 2) return [];
+  const data = [];
+  for (let i = 1; i < pts.length; i++) {
+    const prev = pts[i - 1].value;
+    const curr = pts[i].value;
+    if (!curr) continue;
+    data.push({
+      x: pts[i].date,
+      y: +(((curr - prev) / curr) * 100).toFixed(2)
+    });
+  }
+  return data;
+}
+
+function pctClass(v) { if (v == null) return ''; return v >= 0 ? 'pos' : 'neg'; }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function getSelectedSeries() {
+  const result = [];
+  selectedFunds.forEach(name => {
+    const f = DB.funds[name];
+    if (!f) return;
+    const pts = filterByDateRange(f.nav);
+    if (pts.length > 0) result.push({ name, points: pts, color: fundColorMap[name] });
+  });
+  selectedIndices.forEach(name => {
+    const arr = DB.indices[name];
+    if (!arr) return;
+    const pts = filterByDateRange(arr);
+    if (pts.length > 0) result.push({ name, points: pts, color: fundColorMap[name] });
+  });
+  return result;
+}
+
+function buildSummaryStats() {
+  const allSeries = getSelectedSeries();
+  if (!allSeries.length) return [];
+
+  const bestCAGR = allSeries.map(s => {
+    if (s.points.length < 13) return { name: s.name, v: null };
+    const base = s.points[s.points.length - 13].value, end = s.points[s.points.length - 1].value;
+    return { name: s.name, v: ((end-base)/base)*100 };
+  }).filter(x => x.v != null).sort((a,b) => b.v - a.v)[0];
+
+  const avgBeta = [...selectedFunds].filter(n => DB.meta[n]?.['3Y']?.beta != null)
+    .map(n => DB.meta[n]['3Y'].beta);
+  const avgBetaVal = avgBeta.length ? avgBeta.reduce((a,b)=>a+b,0)/avgBeta.length : null;
+
+  const avgAlpha = [...selectedFunds].filter(n => DB.meta[n]?.['3Y']?.alpha != null)
+    .map(n => DB.meta[n]['3Y'].alpha);
+  const avgAlphaVal = avgAlpha.length ? avgAlpha.reduce((a,b)=>a+b,0)/avgAlpha.length : null;
+
+  return [
+    { label: 'Funds Selected', value: selectedFunds.size + selectedIndices.size, sub: selectedFunds.size + ' funds, '+ selectedIndices.size +' indices', cls: '' },
+    { label: 'Best 1Y Return', value: bestCAGR ? (bestCAGR.v >= 0 ? '+' : '')+bestCAGR.v.toFixed(1)+'%' : '—', sub: bestCAGR?.name || '', cls: bestCAGR ? pctClass(bestCAGR.v) : '' },
+    { label: 'Avg Beta (3Y)', value: avgBetaVal != null ? avgBetaVal.toFixed(2) : '—', sub: 'vs benchmark', cls: '' },
+    { label: 'Avg Alpha (3Y)', value: avgAlphaVal != null ? (avgAlphaVal>=0?'+':'')+avgAlphaVal.toFixed(3) : '—', sub: 'excess return', cls: avgAlphaVal != null ? pctClass(avgAlphaVal) : '' },
+  ];
+}
+
+function buildLegend(id, series) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = series.map(s => `
+    <div class="legend-item">
+      <span class="legend-dot" style="background:${s.color}"></span>
+      <span>${s.name || s}</span>
+    </div>`).join('');
+}
+
+// ─── Toast ───────────────────────────────────────────────────────────────────
+function toast(msg, type='') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'show ' + type;
+  setTimeout(() => t.className = '', 3000);
+}
+
+// Load Chart.js date adapter
+const s = document.createElement('script');
+s.src = 'https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js';
+s.onload = () => {
+  dateAdapterReady = true;
+  loadWorkbook(true);
+  if (!refreshTimerId) refreshTimerId = setInterval(() => loadWorkbook(false), AUTO_REFRESH_MS);
+};
+s.onerror = () => {
+  toast('Error loading date adapter', 'error');
+  document.getElementById('data-status').textContent = 'Chart adapter unavailable';
+};
+document.head.appendChild(s);
+</script>
+</body>
+</html>
