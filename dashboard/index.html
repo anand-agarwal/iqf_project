@@ -1235,12 +1235,6 @@ function buildSummaryStats() {
   if (!allSeries.length) return [];
   const summaryRiskPeriod = getPreferredRiskPeriod();
 
-  const bestCAGR = allSeries.map(s => {
-    if (s.points.length < 13) return { name: s.name, v: null };
-    const base = s.points[s.points.length - 13].value, end = s.points[s.points.length - 1].value;
-    return { name: s.name, v: ((end-base)/base)*100 };
-  }).filter(x => x.v != null).sort((a,b) => b.v - a.v)[0];
-
   const avgBeta = summaryRiskPeriod ? [...selectedFunds].filter(n => DB.meta[n]?.[summaryRiskPeriod]?.beta != null)
     .map(n => DB.meta[n][summaryRiskPeriod].beta) : [];
   const avgBetaVal = avgBeta.length ? avgBeta.reduce((a,b)=>a+b,0)/avgBeta.length : null;
@@ -1251,7 +1245,6 @@ function buildSummaryStats() {
 
   return [
     { label: 'Funds Selected', value: selectedFunds.size + selectedIndices.size, sub: selectedFunds.size + ' funds, '+ selectedIndices.size +' indices', cls: '' },
-    { label: 'Best 1Y Return', value: bestCAGR ? (bestCAGR.v >= 0 ? '+' : '')+bestCAGR.v.toFixed(1)+'%' : '—', sub: bestCAGR?.name || '', cls: bestCAGR ? pctClass(bestCAGR.v) : '' },
     { label: `Avg Beta${summaryRiskPeriod ? ` (${summaryRiskPeriod})` : ''}`, value: avgBetaVal != null ? avgBetaVal.toFixed(2) : '—', sub: 'vs benchmark', cls: '' },
     { label: `Avg Alpha${summaryRiskPeriod ? ` (${summaryRiskPeriod})` : ''}`, value: avgAlphaVal != null ? (avgAlphaVal>=0?'+':'')+avgAlphaVal.toFixed(3) : '—', sub: 'excess return', cls: avgAlphaVal != null ? pctClass(avgAlphaVal) : '' },
   ];
