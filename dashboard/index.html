@@ -273,11 +273,12 @@
 
 <script>
 // ─── State ───────────────────────────────────────────────────────────────────
-let DB = { funds: {}, indices: {}, riskFree: {}, meta: {} };
+let DB = { funds: {}, indices: {}, riskFree: {}, meta: {}, riskPeriods: [] };
 let selectedFunds = new Set();
 let selectedIndices = new Set();
 let currentView = 'nav';
 let activeCategory = null;
+let riskPeriod = null;
 const WORKBOOK_PATH = './NAV_Data.xlsx';
 const AUTO_REFRESH_MS = 30000;
 const COLORS = [
@@ -343,6 +344,92 @@ function normalizeRow(row) {
   return normalized;
 }
 
+function canonicalizeFundName(name) {
+  let value = String(name || '').toLowerCase().trim();
+  const phraseReplacements = [
+    ['aditya birla sun life', 'birlasunlife'],
+    ['birla sun life', 'birlasunlife'],
+    ['axis bank', 'axis'],
+    ['motital', 'motilal'],
+    ['technology opportunities', 'technology'],
+    ['banking & fin svcs', 'banking financial services'],
+    ['banking & financial svcs', 'banking financial services'],
+    ['financial serv', 'financial services'],
+    ['fin svcs', 'financial services'],
+    ['financial svcs', 'financial services'],
+    ['liquidity', 'liquid'],
+    ['mid-cap', 'mid cap'],
+    ['large-cap', 'large cap'],
+    ['small-cap', 'small cap'],
+    ['mahindra', ''],
+    ['&', ' and '],
+    ['*', ' ']
+  ];
+  phraseReplacements.forEach(([from, to]) => { value = value.replaceAll(from, to); });
+  value = value.replace(/[^a-z0-9]+/g, ' ');
+
+  const tokenMap = {
+    dir: 'direct',
+    gr: 'growth',
+    fin: 'financial',
+    serv: 'services',
+    svcs: 'services',
+    svc: 'services'
+  };
+  const stopwords = new Set([
+    'fund', 'funds', 'direct', 'growth', 'plan', 'option', 'regular',
+    'and', 'of', 'the', 'g'
+  ]);
+
+  const tokens = value.split(/\s+/)
+    .map(token => tokenMap[token] || token)
+    .filter(token => token && !stopwords.has(token));
+
+  return [...new Set(tokens)].sort().join(' ');
+}
+
+function buildFundNameLookup(names) {
+  const lookup = new Map();
+  names.forEach(name => lookup.set(canonicalizeFundName(name), name));
+  return lookup;
+}
+
+function tokenSimilarity(a, b) {
+  const aTokens = new Set(a.split(' ').filter(Boolean));
+  const bTokens = new Set(b.split(' ').filter(Boolean));
+  if (!aTokens.size || !bTokens.size) return 0;
+  const overlap = [...aTokens].filter(token => bTokens.has(token)).length;
+  return overlap / new Set([...aTokens, ...bTokens]).size;
+}
+
+function findFundMatch(name, lookup, candidates) {
+  const canonical = canonicalizeFundName(name);
+  if (lookup.has(canonical)) return lookup.get(canonical);
+
+  let bestName = null;
+  let bestScore = 0;
+  candidates.forEach(candidate => {
+    const score = tokenSimilarity(canonical, canonicalizeFundName(candidate));
+    if (score > bestScore) {
+      bestScore = score;
+      bestName = candidate;
+    }
+  });
+
+  return bestScore >= 0.72 ? bestName : null;
+}
+
+function normalizeRiskPeriod(period) {
+  return String(period || '').trim().replace(/\s+/g, ' ').toUpperCase();
+}
+
+function getPreferredRiskPeriod() {
+  if (DB.riskPeriods.includes('5 YR')) return '5 YR';
+  if (DB.riskPeriods.includes('3Y')) return '3Y';
+  if (DB.riskPeriods.includes('MONTHLY')) return 'MONTHLY';
+  return DB.riskPeriods[0] || null;
+}
+
 function getSheetByHeaders(wb, requiredHeaders) {
   for (const sheetName of wb.SheetNames) {
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { raw: false });
@@ -357,7 +444,7 @@ function getSheetByHeaders(wb, requiredHeaders) {
 function parseWorkbook(wb) {
   const prevFunds = new Set(selectedFunds);
   const prevIndices = new Set(selectedIndices);
-  DB = { funds: {}, indices: {}, riskFree: {}, meta: {} };
+  DB = { funds: {}, indices: {}, riskFree: {}, meta: {}, riskPeriods: [] };
 
   // Sheet with NAV data — columns: Date, FundName, Category, NAV
   const navSheet = getSheetByHeaders(wb, ['Date', 'FundName', 'Category', 'NAV']);
@@ -390,33 +477,43 @@ function parseWorkbook(wb) {
     const rows = XLSX.utils.sheet_to_json(wb.Sheets['RiskFree'], { raw: false });
     rows.forEach(rawRow => {
       const r = normalizeRow(rawRow);
-      const rate = parseFloat(r['Rate']), date = r['Date'];
+      const rate = parseFloat(r['Rate'] ?? r['Value']), date = r['Date'];
       if (isNaN(rate) || !date) return;
-      DB.riskFree[r['Date']] = rate;
+      DB.riskFree[String(r['Date']).trim()] = rate;
     });
   }
 
-  // Sheet: RiskMetrics — columns: FundName, Period, Alpha, Beta, Sharpe, Benchmark, R2
+  // Sheet: RiskMetrics — workbook-specific columns: FundName, Period, Alpha, Beta, Benchmark, R2
   if (wb.SheetNames.includes('RiskMetrics')) {
     const rows = XLSX.utils.sheet_to_json(wb.Sheets['RiskMetrics'], { raw: false });
+    const fundNames = Object.keys(DB.funds);
+    const fundLookup = buildFundNameLookup(fundNames);
+    const periods = new Set();
+
     rows.forEach(rawRow => {
       const r = normalizeRow(rawRow);
-      const name = r['FundName'];
-      if (!name) return;
-      if (!DB.meta[name]) DB.meta[name] = {};
-      const period = r['Period'] || '3Y';
-      DB.meta[name][period] = {
+      const sourceName = r['FundName'];
+      const matchedName = findFundMatch(sourceName, fundLookup, fundNames);
+      if (!matchedName) return;
+      if (!DB.meta[matchedName]) DB.meta[matchedName] = {};
+
+      const period = normalizeRiskPeriod(r['Period'] || 'MONTHLY');
+      periods.add(period);
+      DB.meta[matchedName][period] = {
         alpha: parseFloat(r['Alpha']),
         beta: parseFloat(r['Beta']),
-        sharpe: parseFloat(r['Sharpe']),
         r2: parseFloat(r['R2']),
-        benchmark: r['Benchmark']
+        benchmark: r['Benchmark'],
+        sourceFundName: sourceName
       };
     });
+
+    DB.riskPeriods = [...periods];
   }
 
   selectedFunds = new Set([...prevFunds].filter(name => DB.funds[name]));
   selectedIndices = new Set([...prevIndices].filter(name => DB.indices[name]));
+  riskPeriod = DB.riskPeriods.includes(riskPeriod) ? riskPeriod : getPreferredRiskPeriod();
   assignColors();
   renderSidebar();
   renderDashboard();
@@ -723,10 +820,13 @@ function buildRollingChart() {
 // ── Alpha / Beta View ─────────────────────────────────────────────────────────
 function renderRiskView() {
   const vc = document.getElementById('view-content');
+  const periods = DB.riskPeriods.length ? DB.riskPeriods : [];
+  const activePeriod = riskPeriod || getPreferredRiskPeriod();
+
   vc.innerHTML = `
     <div class="chart-controls" style="margin-bottom:4px;">
       <span style="font-size:11px;color:var(--muted);margin-right:4px;">Period:</span>
-      ${['1Y','3Y','5Y'].map(p => `<button class="ctrl-btn ${p==='3Y'?'active':''}" onclick="switchRiskPeriod('${p}',this)">${p}</button>`).join('')}
+      ${periods.map(p => `<button class="ctrl-btn ${p===activePeriod?'active':''}" onclick="switchRiskPeriod('${p}',this)">${p}</button>`).join('')}
     </div>
     <div class="two-col">
       <div class="chart-card">
@@ -742,9 +842,9 @@ function renderRiskView() {
     </div>
     <div class="two-col">
       <div class="chart-card">
-        <h3>Sharpe Ratio</h3>
-        <p class="chart-sub">Risk-adjusted return — excess return per unit of volatility (vs RBI 91-day T-Bill)</p>
-        <div class="chart-wrapper" style="height:280px;"><canvas id="sharpeChart" role="img" aria-label="Sharpe ratio bar chart">Sharpe ratios for selected funds.</canvas></div>
+        <h3>R-squared (R2)</h3>
+        <p class="chart-sub">Explained variance of fund returns relative to the selected benchmark</p>
+        <div class="chart-wrapper" style="height:280px;"><canvas id="r2Chart" role="img" aria-label="R-squared bar chart">R-squared values for selected funds.</canvas></div>
       </div>
       <div class="chart-card">
         <h3>Alpha vs Beta (Scatter)</h3>
@@ -754,15 +854,20 @@ function renderRiskView() {
       </div>
     </div>
   `;
-  buildRiskCharts('3Y');
+  if (!periods.length) {
+    vc.innerHTML = `<div class="chart-card">
+      <p style="color:var(--muted);font-size:12px;padding:24px;text-align:center;">No risk metrics were matched to the selected workbook data.</p>
+    </div>`;
+    return;
+  }
+  buildRiskCharts(activePeriod);
 }
 
-let riskPeriod = '3Y';
 function switchRiskPeriod(p, btn) {
   riskPeriod = p;
   document.querySelectorAll('.ctrl-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  ['alphaChart','betaChart','sharpeChart','abScatter'].forEach(id => {
+  ['alphaChart','betaChart','r2Chart','abScatter'].forEach(id => {
     if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; }
   });
   buildRiskCharts(p);
@@ -771,7 +876,7 @@ function switchRiskPeriod(p, btn) {
 function buildRiskCharts(period) {
   const funds = [...selectedFunds].filter(n => DB.meta[n]?.[period]);
   if (!funds.length) {
-    document.querySelectorAll('#alphaChart,#betaChart,#sharpeChart').forEach(c => {
+    document.querySelectorAll('#alphaChart,#betaChart,#r2Chart').forEach(c => {
       c.parentElement.innerHTML = `<p style="color:var(--muted);font-size:12px;padding:40px;text-align:center;">No risk metrics for period ${period}. Check RiskMetrics sheet.</p>`;
     });
     return;
@@ -781,7 +886,7 @@ function buildRiskCharts(period) {
   const colors = funds.map(n => fundColorMap[n]);
   const alphas = funds.map(n => +(DB.meta[n][period].alpha || 0).toFixed(3));
   const betas  = funds.map(n => +(DB.meta[n][period].beta  || 0).toFixed(3));
-  const sharpes= funds.map(n => +(DB.meta[n][period].sharpe|| 0).toFixed(3));
+  const r2Values= funds.map(n => +(DB.meta[n][period].r2 || 0).toFixed(3));
 
   const barOpts = (label, color) => ({
     responsive: true, maintainAspectRatio: false,
@@ -807,10 +912,10 @@ function buildRiskCharts(period) {
       }
     }
   });
-  chartInstances['sharpeChart'] = new Chart(document.getElementById('sharpeChart'), {
+  chartInstances['r2Chart'] = new Chart(document.getElementById('r2Chart'), {
     type: 'bar',
-    data: { labels, datasets: [{ label: 'Sharpe', data: sharpes, backgroundColor: colors.map(c=>c+'bb'), borderColor: colors, borderWidth: 1, borderRadius: 4 }] },
-    options: barOpts('Sharpe')
+    data: { labels, datasets: [{ label: 'R2', data: r2Values, backgroundColor: colors.map(c=>c+'bb'), borderColor: colors, borderWidth: 1, borderRadius: 4 }] },
+    options: barOpts('R2')
   });
 
   // Scatter
@@ -1041,27 +1146,28 @@ function buildDrawdownChart() {
 function renderTableView() {
   const vc = document.getElementById('view-content');
   const fundsArr = [...selectedFunds];
+  const summaryRiskPeriod = getPreferredRiskPeriod();
 
   const rows = fundsArr.map(name => {
     const f = DB.funds[name];
     const pts = f ? filterByDateRange(f.nav) : [];
     const latest = pts.at(-1)?.value || null;
-    const meta3Y = DB.meta[name]?.['3Y'];
+    const meta = summaryRiskPeriod ? DB.meta[name]?.[summaryRiskPeriod] : null;
     const cagr1 = calcCAGR(pts, 12), cagr3 = calcCAGR(pts, 36), cagr5 = calcCAGR(pts, 60);
     return { name, category: f?.category || '—', latest, cagr1, cagr3, cagr5,
-      alpha: meta3Y?.alpha, beta: meta3Y?.beta, sharpe: meta3Y?.sharpe };
+      alpha: meta?.alpha, beta: meta?.beta, r2: meta?.r2 };
   });
 
   vc.innerHTML = `
     <div class="chart-card">
       <h3>Fund Metrics Summary</h3>
-      <p class="chart-sub">All metrics for selected funds — Alpha/Beta/Sharpe based on 3Y period</p>
+      <p class="chart-sub">All metrics for selected funds${summaryRiskPeriod ? ` — Alpha/Beta/R2 based on ${summaryRiskPeriod} risk metrics` : ''}</p>
       <div class="table-wrap">
         <table>
           <thead><tr>
             <th>Fund</th><th>Category</th><th>Latest NAV</th>
             <th>1Y CAGR</th><th>3Y CAGR</th><th>5Y CAGR</th>
-            <th>Alpha (3Y)</th><th>Beta (3Y)</th><th>Sharpe (3Y)</th>
+            <th>Alpha${summaryRiskPeriod ? ` (${summaryRiskPeriod})` : ''}</th><th>Beta${summaryRiskPeriod ? ` (${summaryRiskPeriod})` : ''}</th><th>R2${summaryRiskPeriod ? ` (${summaryRiskPeriod})` : ''}</th>
           </tr></thead>
           <tbody>
           ${rows.map(r => `<tr>
@@ -1073,7 +1179,7 @@ function renderTableView() {
             <td class="${pctClass(r.cagr5)}">${r.cagr5 != null ? r.cagr5.toFixed(2)+'%' : '—'}</td>
             <td class="${pctClass(r.alpha)}">${r.alpha != null ? r.alpha.toFixed(4) : '—'}</td>
             <td>${r.beta != null ? r.beta.toFixed(3) : '—'}</td>
-            <td class="${pctClass(r.sharpe)}">${r.sharpe != null ? r.sharpe.toFixed(3) : '—'}</td>
+            <td>${r.r2 != null ? r.r2.toFixed(3) : '—'}</td>
           </tr>`).join('')}
           </tbody>
         </table>
@@ -1127,6 +1233,7 @@ function getSelectedSeries() {
 function buildSummaryStats() {
   const allSeries = getSelectedSeries();
   if (!allSeries.length) return [];
+  const summaryRiskPeriod = getPreferredRiskPeriod();
 
   const bestCAGR = allSeries.map(s => {
     if (s.points.length < 13) return { name: s.name, v: null };
@@ -1134,19 +1241,19 @@ function buildSummaryStats() {
     return { name: s.name, v: ((end-base)/base)*100 };
   }).filter(x => x.v != null).sort((a,b) => b.v - a.v)[0];
 
-  const avgBeta = [...selectedFunds].filter(n => DB.meta[n]?.['3Y']?.beta != null)
-    .map(n => DB.meta[n]['3Y'].beta);
+  const avgBeta = summaryRiskPeriod ? [...selectedFunds].filter(n => DB.meta[n]?.[summaryRiskPeriod]?.beta != null)
+    .map(n => DB.meta[n][summaryRiskPeriod].beta) : [];
   const avgBetaVal = avgBeta.length ? avgBeta.reduce((a,b)=>a+b,0)/avgBeta.length : null;
 
-  const avgAlpha = [...selectedFunds].filter(n => DB.meta[n]?.['3Y']?.alpha != null)
-    .map(n => DB.meta[n]['3Y'].alpha);
+  const avgAlpha = summaryRiskPeriod ? [...selectedFunds].filter(n => DB.meta[n]?.[summaryRiskPeriod]?.alpha != null)
+    .map(n => DB.meta[n][summaryRiskPeriod].alpha) : [];
   const avgAlphaVal = avgAlpha.length ? avgAlpha.reduce((a,b)=>a+b,0)/avgAlpha.length : null;
 
   return [
     { label: 'Funds Selected', value: selectedFunds.size + selectedIndices.size, sub: selectedFunds.size + ' funds, '+ selectedIndices.size +' indices', cls: '' },
     { label: 'Best 1Y Return', value: bestCAGR ? (bestCAGR.v >= 0 ? '+' : '')+bestCAGR.v.toFixed(1)+'%' : '—', sub: bestCAGR?.name || '', cls: bestCAGR ? pctClass(bestCAGR.v) : '' },
-    { label: 'Avg Beta (3Y)', value: avgBetaVal != null ? avgBetaVal.toFixed(2) : '—', sub: 'vs benchmark', cls: '' },
-    { label: 'Avg Alpha (3Y)', value: avgAlphaVal != null ? (avgAlphaVal>=0?'+':'')+avgAlphaVal.toFixed(3) : '—', sub: 'excess return', cls: avgAlphaVal != null ? pctClass(avgAlphaVal) : '' },
+    { label: `Avg Beta${summaryRiskPeriod ? ` (${summaryRiskPeriod})` : ''}`, value: avgBetaVal != null ? avgBetaVal.toFixed(2) : '—', sub: 'vs benchmark', cls: '' },
+    { label: `Avg Alpha${summaryRiskPeriod ? ` (${summaryRiskPeriod})` : ''}`, value: avgAlphaVal != null ? (avgAlphaVal>=0?'+':'')+avgAlphaVal.toFixed(3) : '—', sub: 'excess return', cls: avgAlphaVal != null ? pctClass(avgAlphaVal) : '' },
   ];
 }
 

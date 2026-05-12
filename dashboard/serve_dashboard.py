@@ -6,7 +6,7 @@ import mimetypes
 
 
 ROOT = Path(__file__).resolve().parent
-DASHBOARD_FILE = ROOT / "dashboard.html"
+DASHBOARD_FILE = ROOT / "index.html"
 WORKBOOK_FILE = ROOT / "NAV_Data.xlsx"
 HOST = "127.0.0.1"
 PORT = 8000
