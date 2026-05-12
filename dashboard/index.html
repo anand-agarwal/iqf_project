@@ -352,16 +352,20 @@ function canonicalizeFundName(name) {
     ['axis bank', 'axis'],
     ['motital', 'motilal'],
     ['technology opportunities', 'technology'],
+    ['banking and financial services', 'banking financial service'],
     ['banking & fin svcs', 'banking financial services'],
     ['banking & financial svcs', 'banking financial services'],
-    ['financial serv', 'financial services'],
-    ['fin svcs', 'financial services'],
-    ['financial svcs', 'financial services'],
+    ['financial services', 'financial service'],
+    ['fin services', 'financial service'],
+    ['fin svcs', 'financial service'],
+    ['financial svcs', 'financial service'],
     ['liquidity', 'liquid'],
     ['mid-cap', 'mid cap'],
     ['large-cap', 'large cap'],
     ['small-cap', 'small cap'],
     ['mahindra', ''],
+    ['opportunities', ''],
+    ['opp', ''],
     ['&', ' and '],
     ['*', ' ']
   ];
@@ -372,9 +376,10 @@ function canonicalizeFundName(name) {
     dir: 'direct',
     gr: 'growth',
     fin: 'financial',
-    serv: 'services',
-    svcs: 'services',
-    svc: 'services'
+    serv: 'service',
+    services: 'service',
+    svcs: 'service',
+    svc: 'service'
   };
   const stopwords = new Set([
     'fund', 'funds', 'direct', 'growth', 'plan', 'option', 'regular',
@@ -394,6 +399,12 @@ function buildFundNameLookup(names) {
   return lookup;
 }
 
+function buildCaseInsensitiveLookup(names) {
+  const lookup = new Map();
+  names.forEach(name => lookup.set(String(name || '').trim().toLowerCase(), name));
+  return lookup;
+}
+
 function tokenSimilarity(a, b) {
   const aTokens = new Set(a.split(' ').filter(Boolean));
   const bTokens = new Set(b.split(' ').filter(Boolean));
@@ -403,7 +414,15 @@ function tokenSimilarity(a, b) {
 }
 
 function findFundMatch(name, lookup, candidates) {
-  const canonical = canonicalizeFundName(name);
+  const raw = String(name || '').trim();
+  if (!raw) return null;
+
+  if (candidates.includes(raw)) return raw;
+
+  const lowerLookup = buildCaseInsensitiveLookup(candidates);
+  if (lowerLookup.has(raw.toLowerCase())) return lowerLookup.get(raw.toLowerCase());
+
+  const canonical = canonicalizeFundName(raw);
   if (lookup.has(canonical)) return lookup.get(canonical);
 
   let bestName = null;
