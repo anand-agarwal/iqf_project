@@ -502,7 +502,7 @@ function parseWorkbook(wb) {
     });
   }
 
-  // Sheet: RiskMetrics — workbook-specific columns: FundName, Period, Alpha, Beta, Benchmark, R2
+  // Sheet: RiskMetrics — workbook-specific columns: FundName, Period, Alpha, Beta, Alpha P value, Benchmark, R2
   if (wb.SheetNames.includes('RiskMetrics')) {
     const rows = XLSX.utils.sheet_to_json(wb.Sheets['RiskMetrics'], { raw: false });
     const fundNames = Object.keys(DB.funds);
@@ -521,6 +521,7 @@ function parseWorkbook(wb) {
       DB.meta[matchedName][period] = {
         alpha: parseFloat(r['Alpha']),
         beta: parseFloat(r['Beta']),
+        alphaPValue: parseFloat(r['Alpha P value']),
         r2: parseFloat(r['R2']),
         benchmark: r['Benchmark'],
         sourceFundName: sourceName
@@ -843,6 +844,11 @@ function renderRiskView() {
   const activePeriod = riskPeriod || getPreferredRiskPeriod();
 
   vc.innerHTML = `
+    <div class="chart-card">
+      <h3>Fund Risk Cards</h3>
+      <p class="chart-sub">Per-fund cards showing Alpha P-value plus 5 YR alpha and beta from the RiskMetrics sheet</p>
+      <div class="stat-grid" id="risk-card-grid"></div>
+    </div>
     <div class="chart-controls" style="margin-bottom:4px;">
       <span style="font-size:11px;color:var(--muted);margin-right:4px;">Period:</span>
       ${periods.map(p => `<button class="ctrl-btn ${p===activePeriod?'active':''}" onclick="switchRiskPeriod('${p}',this)">${p}</button>`).join('')}
@@ -879,7 +885,39 @@ function renderRiskView() {
     </div>`;
     return;
   }
+  renderFundRiskCards();
   buildRiskCharts(activePeriod);
+}
+
+function renderFundRiskCards() {
+  const grid = document.getElementById('risk-card-grid');
+  if (!grid) return;
+
+  const cards = [...selectedFunds].map(name => {
+    const monthly = DB.meta[name]?.['MONTHLY'];
+    const fiveYear = DB.meta[name]?.['5 YR'];
+    if (!monthly && !fiveYear) return null;
+    return {
+      name,
+      alphaPValue: monthly?.alphaPValue,
+      alpha5Y: fiveYear?.alpha,
+      beta5Y: fiveYear?.beta
+    };
+  }).filter(Boolean);
+
+  if (!cards.length) {
+    grid.innerHTML = `<p style="color:var(--muted);font-size:12px;padding:12px 0;">No matching fund risk cards available for the current selection.</p>`;
+    return;
+  }
+
+  grid.innerHTML = cards.map(card => `
+    <div class="stat-card">
+      <div class="label" style="min-height:32px;">${card.name}</div>
+      <div class="sub">P-value: ${card.alphaPValue != null && !Number.isNaN(card.alphaPValue) ? card.alphaPValue.toFixed(4) : '—'}</div>
+      <div class="sub">5Y Alpha: <span class="${pctClass(card.alpha5Y)}">${card.alpha5Y != null && !Number.isNaN(card.alpha5Y) ? card.alpha5Y.toFixed(4) : '—'}</span></div>
+      <div class="sub">5Y Beta: ${card.beta5Y != null && !Number.isNaN(card.beta5Y) ? card.beta5Y.toFixed(3) : '—'}</div>
+    </div>
+  `).join('');
 }
 
 function switchRiskPeriod(p, btn) {
